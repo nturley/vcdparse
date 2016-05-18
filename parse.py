@@ -3,25 +3,34 @@ from collections import deque
 # simulation or declaration command
 class Command:
     def __init__(self, command_type):
-        self.command_type = command_type
-        self.command_text = None
+        self.comtype = command_type
+        self.text = None
 
     def add_text(self, text):
-        if self.command_text:
-            self.command_text += ' ' + text
+        if self.text:
+            self.text += ' ' + text
         else:
-            self.command_text = text
+            self.text = text
+
+    def __str__(self):
+        if self.text:
+            return self.comtype+': '+self.text
+        return self.comtype
 
 
 class ValueChange:
     def __init__(self, val):
         self.val = val
         self.sid = None
+    def __str__(self):
+        return self.sid+'='+self.val
 
 
 class SimulationTime:
     def __init__(self, time):
         self.time = time
+    def __str__(self):
+        return '#' + self.time
 
 # 2005 table 18.3
 decl_keywords = set(['$comment',
@@ -47,12 +56,13 @@ class StateMachine:
     """
     vcd parser state machine
     builds list of commands (Command, ValueChange, or SimulationTime)
+    stores completed commands in command_stream
     """
 
     def __init__(self):
         # partially constructed command
         self.current_command = None
-        # list of processed commands
+        # list of completed commands
         self.command_stream = []
 
     def start_state(self, word, word_stack):
@@ -73,7 +83,7 @@ class StateMachine:
         # scalar values are one character so goto sid
         if word.startswith(scalars):
             return self.vchange_sid_state
-        # vectors values keep going so goto val, before going to sid
+        # vector values keep going so goto val before sid
         if word.startswith(vec_types):
             return self.vchange_val_state
         assert False
@@ -99,21 +109,29 @@ class StateMachine:
         self.command_stream.append(time)
         return self.start_state
 
-machine = StateMachine()
-next_state = machine.start_state
-with open('tests/standard_example.vcd') as f:
-    # we parse line by line to avoid holding entire file in memory
-    for line in f:
-        # we use a deque so we can consume entire words or partial words
-        # we pop words and then put unconsumed characters back onto the stack
-        word_stack = deque(line.split())
+def generate_commands(fname):
+    machine = StateMachine()
+    next_state = machine.start_state
+    with open(fname) as f:
+        # only hold one line at a time in memory
+        for line in f:
+            # we use a deque so we can consume entire words or partial words
+            # we pop words and then put unconsumed characters back onto the stack
+            word_stack = deque(line.split())
 
-        # we are mutating word_stack, so we can't iterate
-        while len(word_stack) > 0:
-            word = word_stack.popleft()
-            if len(word) is 0:
-                continue
-            # execute state, returns next state to execute
-            next_state = next_state(word, word_stack)
+            # we are mutating word_stack, so we can't iterate
+            while len(word_stack) > 0:
+                word = word_stack.popleft()
+                if len(word) is 0:
+                    continue
 
-print machine.command_stream
+                # execute state, returns next state to execute
+                next_state = next_state(word, word_stack)
+
+                # yield any completed commands
+                if len(machine.command_stream) > 1:
+                    yield machine.command_stream.pop()
+
+if __name__ == '__main__':
+    for command in generate_commands('tests/standard_example.vcd'):
+        print command
